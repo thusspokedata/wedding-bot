@@ -1,74 +1,125 @@
 #!/usr/bin/env python3
-import os, sys, time, signal, threading
+import os, sys, time, signal, threading, requests
 from meshtastic.serial_interface import SerialInterface
 from pubsub import pub
 
-PORT       = os.environ.get("MESH_PORT", "/dev/ttyUSB0")
-BOT        = os.environ.get("BOT_NAME", "wedding-bot")
-PUBLIC_CH  = int(os.environ.get("PUBLIC_CH", "1"))  # canal público (1)
-PFX        = "!"
+# === Configuration ===
+PORT       = os.environ.get("MESH_PORT", "/dev/ttyUSB0")    # LoRa serial port
+BOT        = os.environ.get("BOT_NAME", "wedding-bot")      # Bot name
+PUBLIC_CH  = int(os.environ.get("PUBLIC_CH", "1"))          # Public channel index
+PFX        = "!"                                            # Optional command prefix (bot also works without it)
 t0         = time.time()
 LOCK       = threading.Lock()
 IF         = None
 
+# === Helper: uptime formatter ===
 def human_uptime():
     s = int(time.time() - t0)
     d, s = divmod(s, 86400); h, s = divmod(s, 3600); m, s = divmod(s, 60)
     return (f"{d}d " if d else "") + f"{h}h {m}m {s}s"
 
+# === Helper: send message safely ===
 def send(txt, dest, ch):
-    # dest: '^all' (broadcast) o '!nodeid' (DM) — nunca None
+    """Send a text to either broadcast (^all) or a private node (!nodeid)."""
     with LOCK:
         IF.sendText(txt, destinationId=dest, channelIndex=ch)
 
+# === Helper: get BTC price ===
+def btc_price():
+    """Fetch current Bitcoin price in USD using CoinGecko API."""
+    try:
+        r = requests.get(
+            "https://api.coingecko.com/api/v3/simple/price?ids=bitcoin&vs_currencies=usd",
+            timeout=5
+        )
+        r.raise_for_status()
+        price = r.json()["bitcoin"]["usd"]
+        return f"₿ BTC/USD: ${price:,.2f}"
+    except Exception:
+        return "⚠️ Unable to fetch BTC price (no internet or API error)"
+
+# === Core message handler ===
 def on_text(packet=None, interface=None, **kwargs):
-    # packet/interface son los nombres que publica meshtastic.receive.text
-    if not packet: 
+    """Handle every incoming text message and decide if we should reply."""
+    if not packet:
         return
+
     d = packet.get("decoded", {}) or {}
     t = d.get("text")
     if isinstance(t, (bytes, bytearray)):
         t = t.decode("utf-8", "ignore")
-    if not t or not t.startswith(PFX):
+    if not t:
         return
 
     from_id = packet.get("fromId")
     to_id   = packet.get("toId")
-    ch      = packet.get("channel", 0)  # índice del canal del mensaje
+    ch      = packet.get("channel", 0)
     is_broadcast = (to_id == "^all")
 
-    # Solo contestar en el canal público si es broadcast; DM en cualquier canal
+    # Only answer in public if on the designated public channel
     if is_broadcast and ch != PUBLIC_CH:
         return
 
-    cmd, *args = t[len(PFX):].strip().split(maxsplit=1)
-    arg = args[0] if args else ""
-    reply = {
-        "ping":   "pong 🏓",
-        "uptime": f"Laufzeit: {human_uptime()}",
-        "id":     f"Bot: {BOT}",
-        "help":   "Befehle: !ping, !echo <text>, !uptime, !id, !help",
-    }.get(cmd.lower())
-    if cmd.lower() == "echo":
+    text_lower = t.lower().strip()
+    cmd, arg = None, ""
+
+    # === Determine command (with or without prefix) ===
+    if text_lower.startswith(PFX):
+        parts = text_lower[len(PFX):].split(maxsplit=1)
+        cmd = parts[0] if parts else ""
+        arg = parts[1] if len(parts) > 1 else ""
+    else:
+        # Natural language triggers (no prefix)
+        if text_lower.startswith("ping"):
+            cmd = "ping"
+        elif text_lower.startswith("echo"):
+            cmd = "echo"
+            arg = text_lower[5:] if len(text_lower) > 5 else ""
+        elif "uptime" in text_lower:
+            cmd = "uptime"
+        elif text_lower.strip() == "id" or "who" in text_lower:
+            cmd = "id"
+        elif "btc" in text_lower or "bitcoin" in text_lower:
+            cmd = "btc"
+        elif "help" in text_lower or "hilfe" in text_lower:
+            cmd = "help"
+
+    if not cmd:
+        return  # ignore unrelated chat
+
+    # === Execute command ===
+    if cmd == "ping":
+        reply = "pong 🏓"
+    elif cmd == "uptime":
+        reply = f"Laufzeit: {human_uptime()}"
+    elif cmd == "id":
+        reply = f"Bot: {BOT}"
+    elif cmd == "echo":
         reply = f"echo: {arg or 'kein Text'}"
-    if reply is None:
-        reply = "Unbekannter Befehl. !help"
+    elif cmd == "btc":
+        reply = btc_price()
+    elif cmd == "help":
+        reply = "Commands: ping, echo <text>, uptime, id, btc, help"
+    else:
+        reply = "Unknown command. Try 'help'."
 
     dest = from_id if not is_broadcast else "^all"
     send(reply, dest, ch)
 
+# === Bot entry point ===
 def main():
     global IF
     IF = SerialInterface(devPath=PORT, debugOut=False)
     pub.subscribe(on_text, "meshtastic.receive.text")
+
     try:
-        send("wedding-bot ist online. Tippe !help", "^all", PUBLIC_CH)
+        send("🤖 wedding-bot is online. Type 'help' for commands.", "^all", PUBLIC_CH)
     except Exception:
         pass
 
     def goodbye(*_):
         try:
-            send("wedding-bot geht schlafen. Bis bald.", "^all", PUBLIC_CH)
+            send("👋 wedding-bot is going offline. See you soon!", "^all", PUBLIC_CH)
         except Exception:
             pass
         try:
@@ -78,6 +129,7 @@ def main():
 
     signal.signal(signal.SIGINT, goodbye)
     signal.signal(signal.SIGTERM, goodbye)
+
     while True:
         time.sleep(0.5)
 
