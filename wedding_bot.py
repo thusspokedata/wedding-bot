@@ -1,3 +1,4 @@
+cat > ~/wedding_bot.py <<'PY'
 #!/usr/bin/env python3
 import os, sys, time, signal, threading, requests
 from meshtastic.serial_interface import SerialInterface
@@ -111,16 +112,16 @@ def main():
     IF = SerialInterface(devPath=PORT, debugOut=False)
     pub.subscribe(on_text, "meshtastic.receive.text")
 
-    try:
-        send("🤖 wedding-bot is online. Type 'help' for commands.", "^all", PUBLIC_CH)
-    except Exception:
-        pass
+    #try:
+    #    send("🤖 wedding-bot ist online. Tippe 'help' für Befehle.", "^all", PUBLIC_CH)
+    #except Exception:
+    #    pass
 
     def goodbye(*_):
-        try:
-            send("👋 wedding-bot is going offline. See you soon!", "^all", PUBLIC_CH)
-        except Exception:
-            pass
+        #try:
+            #send("👋 wedding-bot geht schlafen. Bis bald.", "^all", PUBLIC_CH)
+        #except Exception:
+        #    pass
         try:
             IF.close()
         finally:
@@ -134,3 +135,5 @@ def main():
 
 if __name__ == "__main__":
     main()
+PY
+chmod +x ~/wedding_bot.py
