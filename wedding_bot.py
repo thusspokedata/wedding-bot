@@ -45,6 +45,20 @@ def btc_price():
     except Exception:
         return "⚠️ Unable to fetch BTC price (no internet or API error)"
 
+# === Helper: get ETH price ===
+def eth_price():
+    """Fetch current Ethereum price in USD using CoinGecko API."""
+    try:
+        r = requests.get(
+            "https://api.coingecko.com/api/v3/simple/price?ids=ethereum&vs_currencies=usd",
+            timeout=5
+        )
+        r.raise_for_status()
+        price = r.json()["ethereum"]["usd"]
+        return f"Ξ ETH/USD: ${price:,.2f}"
+    except Exception:
+        return "⚠️ Unable to fetch ETH price (no internet or API error)"
+
 # === Helper: get latest telemetry summary ===
 def traffic_status():
     """Return a short summary of channel utilization and airUtilTx."""
@@ -144,6 +158,8 @@ def on_text(packet=None, interface=None, **kwargs):
             cmd = "id"
         elif "btc" in text_lower or "bitcoin" in text_lower:
             cmd = "btc"
+        elif "eth" in text_lower or "ethereum" in text_lower:
+            cmd = "eth"
         elif "traffic" in text_lower:
             cmd = "traffic"
         elif "weather" in text_lower or "wetter" in text_lower:
@@ -171,6 +187,8 @@ def on_text(packet=None, interface=None, **kwargs):
         reply = f"echo: {arg or 'kein Text'}"
     elif cmd == "btc":
         reply = btc_price()
+    elif cmd == "eth":
+        reply = eth_price()
     elif cmd == "traffic":
         reply = traffic_status()
     elif cmd == "weather":
@@ -178,7 +196,7 @@ def on_text(packet=None, interface=None, **kwargs):
     elif cmd == "news":
         reply = newsdata_headlines(arg or "berlin")
     elif cmd == "help":
-        reply = "Commands: ping, echo <text>, uptime, id, btc, traffic, weather, news <q>, help"
+        reply = "Commands: ping, echo <text>, uptime, id, btc, eth, traffic, weather, news, help"
     else:
         reply = "Unknown command. Try 'help'."
 
