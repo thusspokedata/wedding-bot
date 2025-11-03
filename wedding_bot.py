@@ -16,6 +16,9 @@ IF         = None
 # === Runtime telemetry store ===
 TELEMETRY = {}
 
+# === Newsdata API key (set NEWSDATA_KEY env var) ===
+NEWSDATA_KEY = os.environ.get("NEWSDATA_KEY", "")
+
 # === Helper: uptime formatter ===
 def human_uptime():
     s = int(time.time() - t0)
@@ -71,6 +74,27 @@ def weather_now():
     except Exception:
         return "🌦️ weather fetch error"
 
+# === Helper: short news via newsdata.io (≤200 chars) ===
+def newsdata_headlines(query="berlin"):
+    if not NEWSDATA_KEY:
+        return "🗞️ set NEWSDATA_KEY first"
+    try:
+        url = (
+            "https://newsdata.io/api/1/news"
+            f"?apikey={NEWSDATA_KEY}&q={requests.utils.quote(query)}"
+            "&language=de,en&country=de"
+        )
+        r = requests.get(url, timeout=6)
+        r.raise_for_status()
+        results = r.json().get("results", [])[:3]
+        titles = [a.get("title","").strip() for a in results if a.get("title")]
+        if not titles:
+            return "🗞️ no recent headlines"
+        text = " • ".join(titles)
+        return text[:200] + ("…" if len(text) > 200 else "")
+    except Exception:
+        return "⚠️ news unavailable"
+
 # === Handle telemetry packets ===
 def on_telemetry(packet=None, interface=None, **kwargs):
     """Keep the last telemetry packet for reporting channel usage."""
@@ -124,6 +148,12 @@ def on_text(packet=None, interface=None, **kwargs):
             cmd = "traffic"
         elif "weather" in text_lower or "wetter" in text_lower:
             cmd = "weather"
+        elif text_lower.startswith("news") or "nachrichten" in text_lower:
+            cmd = "news"
+            try:
+                arg = text_lower.split(maxsplit=1)[1]
+            except IndexError:
+                arg = "berlin"
         elif "help" in text_lower or "hilfe" in text_lower:
             cmd = "help"
 
@@ -145,8 +175,10 @@ def on_text(packet=None, interface=None, **kwargs):
         reply = traffic_status()
     elif cmd == "weather":
         reply = weather_now()
+    elif cmd == "news":
+        reply = newsdata_headlines(arg or "berlin")
     elif cmd == "help":
-        reply = "Commands: ping, echo <text>, uptime, id, btc, traffic, weather, help"
+        reply = "Commands: ping, echo <text>, uptime, id, btc, traffic, weather, news <q>, help"
     else:
         reply = "Unknown command. Try 'help'."
 
