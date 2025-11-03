@@ -1,0 +1,3 @@
+meshbot-venv/
+__pycache__/
+*.log
