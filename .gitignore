@@ -1,4 +1,4 @@
 meshbot-venv/
 __pycache__/
 *.log
-.DS_Store.DS_Store
+.DS_Store
