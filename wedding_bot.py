@@ -56,9 +56,9 @@ def on_text(packet=None, interface=None, **kwargs):
     ch      = packet.get("channel", 0)
     is_broadcast = (to_id == "^all")
 
-    # Only answer in public if on the designated public channel
-    if is_broadcast and ch != PUBLIC_CH:
-        return
+    # Only reply publicly if broadcast came on PUBLIC_CH.
+    # For any other channel (e.g. private), force DM even if user sent broadcast.
+    reply_public = (is_broadcast and ch == PUBLIC_CH)
 
     text_lower = t.lower().strip()
     cmd, arg = None, ""
@@ -69,12 +69,10 @@ def on_text(packet=None, interface=None, **kwargs):
         cmd = parts[0] if parts else ""
         arg = parts[1] if len(parts) > 1 else ""
     else:
-        # Natural language triggers (no prefix)
         if text_lower.startswith("ping"):
             cmd = "ping"
         elif text_lower.startswith("echo"):
-            cmd = "echo"
-            arg = text_lower[5:] if len(text_lower) > 5 else ""
+            cmd = "echo"; arg = text_lower[5:] if len(text_lower) > 5 else ""
         elif "uptime" in text_lower:
             cmd = "uptime"
         elif text_lower.strip() == "id" or "who" in text_lower:
@@ -103,7 +101,8 @@ def on_text(packet=None, interface=None, **kwargs):
     else:
         reply = "Unknown command. Try 'help'."
 
-    dest = from_id if not is_broadcast else "^all"
+    # If not PUBLIC_CH, reply by DM; only broadcast on PUBLIC_CH.
+    dest = "^all" if reply_public else from_id
     send(reply, dest, ch)
 
 # === Bot entry point ===
