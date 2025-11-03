@@ -8,7 +8,7 @@ from pubsub import pub
 PORT       = os.environ.get("MESH_PORT", "/dev/ttyUSB0")    # LoRa serial port
 BOT        = os.environ.get("BOT_NAME", "wedding-bot")      # Bot name
 PUBLIC_CH  = int(os.environ.get("PUBLIC_CH", "1"))          # Public channel index
-PFX        = "!"                                            # Optional command prefix (bot also works without it)
+PFX        = "!"
 t0         = time.time()
 LOCK       = threading.Lock()
 IF         = None
@@ -47,11 +47,29 @@ def traffic_status():
     """Return a short summary of channel utilization and airUtilTx."""
     if not TELEMETRY:
         return "📡 No telemetry yet."
-    # take latest telemetry packet
     last = list(TELEMETRY.values())[-1]
     air = last.get("airUtilTx", 0)
     util = last.get("channelUtilization", 0)
     return f"📊 Channel use: tx={air:.2f}%, util={util:.2f}%"
+
+# === Helper: live weather for Wedding (Open-Meteo) ===
+def weather_now():
+    """Fetch current T/RH for Wedding via Open-Meteo."""
+    try:
+        r = requests.get(
+            "https://api.open-meteo.com/v1/forecast"
+            "?latitude=52.55075&longitude=13.373845&current=temperature_2m,relative_humidity_2m",
+            timeout=5
+        )
+        r.raise_for_status()
+        cur = r.json().get("current", {})
+        t = cur.get("temperature_2m")
+        h = cur.get("relative_humidity_2m")
+        if t is None or h is None:
+            return "🌦️ weather unavailable"
+        return f"🌡️ {t:.1f}°C  💧{h:.0f}%  (Wedding)"
+    except Exception:
+        return "🌦️ weather fetch error"
 
 # === Handle telemetry packets ===
 def on_telemetry(packet=None, interface=None, **kwargs):
@@ -67,7 +85,6 @@ def on_text(packet=None, interface=None, **kwargs):
     """Handle every incoming text message and decide if we should reply."""
     if not packet:
         return
-
     d = packet.get("decoded", {}) or {}
     t = d.get("text")
     if isinstance(t, (bytes, bytearray)):
@@ -87,7 +104,7 @@ def on_text(packet=None, interface=None, **kwargs):
     text_lower = t.lower().strip()
     cmd, arg = None, ""
 
-    # === Determine command (with or without prefix) ===
+    # Determine command (with or without prefix)
     if text_lower.startswith(PFX):
         parts = text_lower[len(PFX):].split(maxsplit=1)
         cmd = parts[0] if parts else ""
@@ -105,13 +122,15 @@ def on_text(packet=None, interface=None, **kwargs):
             cmd = "btc"
         elif "traffic" in text_lower:
             cmd = "traffic"
+        elif "weather" in text_lower or "wetter" in text_lower:
+            cmd = "weather"
         elif "help" in text_lower or "hilfe" in text_lower:
             cmd = "help"
 
     if not cmd:
         return  # ignore unrelated chat
 
-    # === Execute command ===
+    # Execute command
     if cmd == "ping":
         reply = "pong 🏓"
     elif cmd == "uptime":
@@ -124,8 +143,10 @@ def on_text(packet=None, interface=None, **kwargs):
         reply = btc_price()
     elif cmd == "traffic":
         reply = traffic_status()
+    elif cmd == "weather":
+        reply = weather_now()
     elif cmd == "help":
-        reply = "Commands: ping, echo <text>, uptime, id, btc, traffic, help"
+        reply = "Commands: ping, echo <text>, uptime, id, btc, traffic, weather, help"
     else:
         reply = "Unknown command. Try 'help'."
 
