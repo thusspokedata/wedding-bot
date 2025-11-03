@@ -13,6 +13,9 @@ t0         = time.time()
 LOCK       = threading.Lock()
 IF         = None
 
+# === Runtime telemetry store ===
+TELEMETRY = {}
+
 # === Helper: uptime formatter ===
 def human_uptime():
     s = int(time.time() - t0)
@@ -38,6 +41,26 @@ def btc_price():
         return f"₿ BTC/USD: ${price:,.2f}"
     except Exception:
         return "⚠️ Unable to fetch BTC price (no internet or API error)"
+
+# === Helper: get latest telemetry summary ===
+def traffic_status():
+    """Return a short summary of channel utilization and airUtilTx."""
+    if not TELEMETRY:
+        return "📡 No telemetry yet."
+    # take latest telemetry packet
+    last = list(TELEMETRY.values())[-1]
+    air = last.get("airUtilTx", 0)
+    util = last.get("channelUtilization", 0)
+    return f"📊 Channel use: tx={air:.2f}%, util={util:.2f}%"
+
+# === Handle telemetry packets ===
+def on_telemetry(packet=None, interface=None, **kwargs):
+    """Keep the last telemetry packet for reporting channel usage."""
+    d = packet.get("decoded", {}) if packet else {}
+    t = d.get("telemetry", {}).get("deviceMetrics", {})
+    n = packet.get("fromId") if packet else None
+    if t and n:
+        TELEMETRY[n] = t
 
 # === Core message handler ===
 def on_text(packet=None, interface=None, **kwargs):
@@ -80,6 +103,8 @@ def on_text(packet=None, interface=None, **kwargs):
             cmd = "id"
         elif "btc" in text_lower or "bitcoin" in text_lower:
             cmd = "btc"
+        elif "traffic" in text_lower:
+            cmd = "traffic"
         elif "help" in text_lower or "hilfe" in text_lower:
             cmd = "help"
 
@@ -97,8 +122,10 @@ def on_text(packet=None, interface=None, **kwargs):
         reply = f"echo: {arg or 'kein Text'}"
     elif cmd == "btc":
         reply = btc_price()
+    elif cmd == "traffic":
+        reply = traffic_status()
     elif cmd == "help":
-        reply = "Commands: ping, echo <text>, uptime, id, btc, help"
+        reply = "Commands: ping, echo <text>, uptime, id, btc, traffic, help"
     else:
         reply = "Unknown command. Try 'help'."
 
@@ -111,15 +138,16 @@ def main():
     global IF
     IF = SerialInterface(devPath=PORT, debugOut=False)
     pub.subscribe(on_text, "meshtastic.receive.text")
+    pub.subscribe(on_telemetry, "meshtastic.receive.telemetry")
 
     #try:
-    #    send("🤖 wedding-bot ist online. Tippe 'help' für Befehle.", "^all", PUBLIC_CH)
+    #    send("🤖 wedding-bot is online. Tippe 'help' für Befehle.", "^all", PUBLIC_CH)
     #except Exception:
     #    pass
 
     def goodbye(*_):
         #try:
-            #send("👋 wedding-bot geht schlafen. Bis bald.", "^all", PUBLIC_CH)
+        #    send("👋 wedding-bot geht schlafen. Bis bald.", "^all", PUBLIC_CH)
         #except Exception:
         #    pass
         try:
